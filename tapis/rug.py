@@ -35,7 +35,16 @@ class Rug:
         self.texture_job = None
         self.positions = self.sim.positions()
         self._bounds_cache = None
-        self.restore = None          # pose to go back to after "Fill screen"
+        # (Linux port) the angle the rug was set to (rotate, fill...): dragging the
+        # cloth can leave it a bit crooked, and double-click turns it back to this
+        if state.heading is not None:
+            self.heading = float(state.heading)
+        else:       # saved before headings: a slightly crooked rug was meant straight
+            q = round(self.angle / (math.pi / 2)) * (math.pi / 2)
+            self.heading = q if abs(self.angle - q) < math.radians(10) else self.angle
+        # pose to go back to after "Fill screen" (center, size, angle); set while it fills the screen
+        r = state.restore
+        self.restore = None if r is None else (np.array(r[:2], np.float64), (float(r[2]), float(r[3])), float(r[4]))
 
     # ---- cached geometry (positions are read back after each step)
     def refresh_positions(self):
@@ -80,7 +89,10 @@ class Rug:
     def state(self) -> RugState:
         return RugState(id=self.id, cx=float(self.center[0]), cy=float(self.center[1]), w=self.size[0],
                         h=self.size[1], angle=self.angle, design=self.design.copy(),
-                        positions=self.positions.astype(np.float32).copy(), below_icons=self.below_icons)
+                        positions=self.positions.astype(np.float32).copy(), below_icons=self.below_icons,
+                        heading=self.heading,
+                        restore=None if self.restore is None else (float(self.restore[0][0]), float(self.restore[0][1]),
+                                                                   *self.restore[1], self.restore[2]))
 
     def delete(self, gl_delete_texture):
         if self.texture:

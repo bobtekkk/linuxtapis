@@ -194,6 +194,10 @@ def draw_pill(p: QPainter, rect: QRectF, below: bool, hover: str | None, pressed
     for name, br in button_rects(rect).items():
         icon = QRectF(br.center().x() - PILL_ICON / 2, br.center().y() - PILL_ICON / 2, PILL_ICON, PILL_ICON)
         col = QColor(255, 255, 255, 150 if pressed == name else (255 if hover == name else 235))
+        if name == "fill" and filled:         # the Fill screen toggle is on
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(SYSTEM_BLUE)
+            p.drawRoundedRect(icon.adjusted(-5, -5, 5, 5), 7, 7)
         draw_glyph(p, name, icon, col, below, filled)
     p.restore()
 

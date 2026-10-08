@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 from OpenGL import GL
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QPoint, QTimer, pyqtSignal
 from PyQt6.QtGui import QCursor, QGuiApplication
 
 from . import gl, store
@@ -22,6 +22,12 @@ NO_BUMPS = dict(icons=[], height=0.0, half=(0.0, 0.0), radius=0.0, soft=1.0, off
 
 def project(q, c):
     return c + (q[..., :2] - c) * (CAM_D / (CAM_D - q[..., 2:3]))
+
+
+def default_size(screen_size):
+    """A new rug's size: half the screen wide (at most 900 pt), 1.6 : 1."""
+    w = min(0.5 * screen_size[0], 900.0)
+    return w, math.floor(w / 1.6 + 0.5)
 
 
 def overlap(a, b, m):
@@ -146,8 +152,7 @@ class Controller(QObject):
     def add_rug(self, save=True):
         screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
         O, S = self.screen_world_rect(screen)
-        w = min(0.5 * S[0], 900.0)
-        h = math.floor(w / 1.6 + 0.5)
+        w, h = default_size(S)
         off = len(self.rugs) * 40.0
         design = store.RugDesign(seed=store.random_seed())
         st = RugState(id=store.new_id(), cx=O[0] + S[0] / 2 + off, cy=O[1] + S[1] / 2 + off, w=w, h=h,
@@ -235,27 +240,44 @@ class Controller(QObject):
         self.save()
 
     def smooth(self, rug):
-        # (Linux port) smooth out where the rug actually lies now: dragging the
-        # cloth moves and turns the whole rug, which its stored pose doesn't know
-        self._fit_pose(rug)
+        """(Linux port) Smooths the rug out, straight. A rug that fills the screen
+        goes back to filling it; any other rug stays where it lies now (dragging
+        the cloth moves it, which its stored pose doesn't know) and turns back
+        to the angle it was set to (dragging can leave it a bit crooked)."""
+        if rug.restore is not None:
+            rug.center, rug.angle = self._fill_pose(rug)[0], 0.0
+        else:
+            self._fit_pose(rug)
+            rug.angle = rug.heading
+        rug.invalidate()
         rug.sim.flatten(rug.center, rug.size, rug.angle)
         self.overlay_dirty = True
 
+    def _fill_pose(self, rug):
+        """Centre and size of the usable part of the screen the rug is on."""
+        screen = (QGuiApplication.screenAt(QPoint(int(rug.center[0]), int(rug.center[1])))
+                  or QGuiApplication.primaryScreen())
+        g = screen.availableGeometry()
+        return (np.array([g.x() + g.width() / 2, g.y() + g.height() / 2], np.float64),
+                (float(g.width()), float(g.height())))
+
     def fill_screen(self, rug):
-        """(Linux port) Lays the rug over the whole screen; again to put it back."""
-        if getattr(rug, "restore", None) is not None:
+        """(Linux port) A toggle: lays the rug straight over the whole screen;
+        again to put it back where it was."""
+        if rug.restore is not None:
             center, size, angle = rug.restore
             rug.restore = None
         else:
             self._fit_pose(rug)
-            rug.restore = (rug.center.copy(), rug.size, rug.angle)
-            from PyQt6.QtCore import QPoint
-            screen = (QGuiApplication.screenAt(QPoint(int(rug.center[0]), int(rug.center[1])))
-                      or QGuiApplication.primaryScreen())
-            g = screen.availableGeometry()
-            center = np.array([g.x() + g.width() / 2, g.y() + g.height() / 2], np.float64)
-            size, angle = (float(g.width()), float(g.height())), 0.0
+            center, size = self._fill_pose(rug)
+            if rug.size[0] >= 0.9 * size[0] and rug.size[1] >= 0.9 * size[1]:
+                # already about as big as the screen: putting it back gives a normal-size rug
+                rug.restore = (center.copy(), default_size(size), 0.0)
+            else:
+                rug.restore = (rug.center.copy(), rug.size, rug.heading)
+            angle = 0.0
         rug.center, rug.size, rug.angle = np.asarray(center, np.float64), size, angle
+        rug.heading = angle
         self.ctx.make_current()
         rug.sim.reset(rug.center, rug.size, rug.angle, 24.0)     # drops onto the desk
         rug.refresh_positions()
@@ -266,7 +288,7 @@ class Controller(QObject):
     def start_spin(self, rug):
         if self.spin is not None:
             return
-        self.spin = dict(rug=rug, start=rug.angle, snap=rug.snapshot(), frame=0)
+        self.spin = dict(rug=rug, start=rug.angle, heading=rug.heading, snap=rug.snapshot(), frame=0)
 
     def set_design(self, rid, design):
         rug = self.rug_by_id(rid)
@@ -472,6 +494,8 @@ class Controller(QObject):
                 r.sim.release()
             elif d.kind in ("move", "rotate", "resize"):
                 r.sim.end_guide()
+                if d.kind == "rotate":
+                    r.heading = r.angle
                 if d.kind == "resize":
                     r.restore = None
                     self.ctx.make_current()
@@ -549,6 +573,7 @@ class Controller(QObject):
         # frame's targets, so each turn stops ~0.8° short and the error adds up.
         # Here the final pose is held for a few more frames.)
         if k >= 18 + 6:
+            r.heading = sp["heading"] + math.pi * 0.5
             r.sim.end_guide()
             self.spin = None
             self.save()

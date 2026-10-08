@@ -88,6 +88,8 @@ class RugState:
     design: RugDesign = field(default_factory=RugDesign)
     positions: np.ndarray | None = None   # (N, 3) float32 cloth points (folds)
     below_icons: bool = False
+    heading: float | None = None          # (Linux port) the angle double-click straightens to
+    restore: tuple | None = None          # (Linux port) (cx, cy, w, h, angle) while it fills the screen
 
     def to_json(self):
         d = {"id": self.id, "cx": self.cx, "cy": self.cy, "w": self.w, "h": self.h, "angle": self.angle,
@@ -95,6 +97,10 @@ class RugState:
         if self.positions is not None:
             d["positions"] = base64.b64encode(np.ascontiguousarray(self.positions, "<f4").tobytes()).decode()
         d["belowIcons"] = self.below_icons
+        if self.heading is not None:
+            d["heading"] = self.heading
+        if self.restore is not None:
+            d["restore"] = dict(zip(("cx", "cy", "w", "h", "angle"), self.restore))
         return d
 
     @staticmethod
@@ -105,9 +111,16 @@ class RugState:
                 pos = np.frombuffer(base64.b64decode(d["positions"]), "<f4").reshape(-1, 3).copy()
             except Exception:
                 pos = None
+        restore = None
+        try:
+            restore = tuple(float(d["restore"][k]) for k in ("cx", "cy", "w", "h", "angle"))
+        except (KeyError, TypeError, ValueError):
+            pass
+        heading = d.get("heading")
         return RugState(id=str(d["id"]), cx=float(d["cx"]), cy=float(d["cy"]), w=float(d["w"]), h=float(d["h"]),
                         angle=float(d["angle"]), design=RugDesign.from_json(d["design"]), positions=pos,
-                        below_icons=bool(d.get("belowIcons", False)))
+                        below_icons=bool(d.get("belowIcons", False)),
+                        heading=float(heading) if isinstance(heading, (int, float)) else None, restore=restore)
 
 
 @dataclass
