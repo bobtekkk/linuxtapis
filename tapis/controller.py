@@ -539,13 +539,16 @@ class Controller(QObject):
             self.spin = None
             return
         k = sp["frame"] + 1
-        t = k / 18
+        t = min(k / 18, 1.0)
         e = t * t * (3 - 2 * t)
         delta = e * math.pi * 0.5
         r.angle = sp["start"] + delta
         self._guide(r, r.center + (sp["snap"][:, :2] - r.center) @ rot(delta).T)
         self.overlay_dirty = True
-        if k >= 18:
+        # (The Mac app ends the guide on frame 18 before the cloth gets that
+        # frame's targets, so each turn stops ~0.8° short and the error adds up.
+        # Here the final pose is held for a few more frames.)
+        if k >= 18 + 6:
             r.sim.end_guide()
             self.spin = None
             self.save()
@@ -654,25 +657,54 @@ class Controller(QObject):
         # here the angle is refitted too (a dragged rug turns as well as slides).
         self._fit_pose(r, need_flat=True)
 
+    @staticmethod
+    def _face_up(r):
+        """Which cloth points have their top side up (folded-over flaps are flipped)."""
+        cols, rows = r.sim.cols, r.sim.rows
+        g = r.positions.reshape(rows, cols, 3)
+        du = np.gradient(g, axis=1)
+        dv = np.gradient(g, axis=0)
+        n = np.cross(du, dv)
+        nz = n[..., 2] / np.maximum(np.linalg.norm(n, axis=-1), 1e-9)
+        return (nz > 0.5).ravel()
+
     def _fit_pose(self, r, need_flat=False):
-        """Best-fit position and angle of the rug's flat layout onto where the
-        cloth lies (using the flat-lying part; folds would skew it)."""
+        """Sets the rug's stored position and angle to where the cloth lies.
+
+        A rug with a few clean folds keeps its flat part where it is (the folds
+        open back out from it); a rug that is all bunched up spreads out around
+        its own middle. Tiny differences are ignored so exact angles stay exact."""
         p = r.positions
         n = len(p)
         if n == 0 or len(r.sim.uv) != n:
             return
-        low = p[:, 2] < 1.5
-        if int(low.sum()) <= math.floor(0.4 * n) / 2:
-            if need_flat:
-                return
-            low = np.ones(n, bool)
-        rest = (r.sim.uv[low] - 0.5) * np.array(r.size)
-        q = p[low, :2]
-        rc, qc = rest.mean(0), q.mean(0)
-        A, B = rest - rc, q - qc
-        ang = math.atan2(float((A[:, 0] * B[:, 1] - A[:, 1] * B[:, 0]).sum()), float((A * B).sum()))
-        r.angle = ang
-        r.center = qc - rot(ang) @ rc
+
+        def fit(mask):
+            rest = (r.sim.uv[mask] - 0.5) * np.array(r.size)
+            q = p[mask, :2]
+            rc, qc = rest.mean(0), q.mean(0)
+            A, B = rest - rc, q - qc
+            ang = math.atan2(float((A[:, 0] * B[:, 1] - A[:, 1] * B[:, 0]).sum()), float((A * B).sum()))
+            R = rot(ang)
+            centre = qc - R @ rc
+            rms = float(np.sqrt((((centre + rest @ R.T) - q) ** 2).sum(1).mean()))
+            return centre, ang, rms
+
+        flat = (p[:, 2] < 1.5) & self._face_up(r)
+        pose = None
+        if flat.sum() >= 0.25 * n:
+            centre, ang, rms = fit(flat)
+            if rms < max(6.0, 0.6 * r.sim.spacing):     # the flat part is undistorted
+                pose = (centre, ang)
+        if pose is None:
+            centre, ang, _ = fit(np.ones(n, bool))
+            pose = (centre, ang)
+        centre, ang = pose
+        d_ang = (ang - r.angle + math.pi) % (2 * math.pi) - math.pi
+        if abs(d_ang) < math.radians(0.25) and np.linalg.norm(centre - r.center) < 0.5:
+            return
+        r.angle = r.angle + d_ang
+        r.center = centre
         r.invalidate()
         self.overlay_dirty = True
 
