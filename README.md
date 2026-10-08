@@ -38,7 +38,7 @@ system tray.
   move it, drag a corner to resize (Shift: evenly), drag the top knob to rotate
   (Shift: 15° steps). Click the rug again, or anywhere else, when done.
 - **Toolbar** under a selected rug: Design, Smooth out, Rotate 90°,
-  Place below/above icons, Remove.
+  Fill screen (click again to restore), Place below/above icons, Remove.
 - **Tray menu**: Add Rug, Hide Rugs, Rearrange Rugs (to reach rugs below the
   icons), arrangements (New, Duplicate, Rename, Delete), Fabric Sounds, Open at
   Login, About, Quit. Hold Alt while opening it for "Refresh Desktop Icons".

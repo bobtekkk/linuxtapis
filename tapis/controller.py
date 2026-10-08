@@ -235,8 +235,33 @@ class Controller(QObject):
         self.save()
 
     def smooth(self, rug):
+        # (Linux port) smooth out where the rug actually lies now: dragging the
+        # cloth moves and turns the whole rug, which its stored pose doesn't know
+        self._fit_pose(rug)
         rug.sim.flatten(rug.center, rug.size, rug.angle)
         self.overlay_dirty = True
+
+    def fill_screen(self, rug):
+        """(Linux port) Lays the rug over the whole screen; again to put it back."""
+        if getattr(rug, "restore", None) is not None:
+            center, size, angle = rug.restore
+            rug.restore = None
+        else:
+            self._fit_pose(rug)
+            rug.restore = (rug.center.copy(), rug.size, rug.angle)
+            from PyQt6.QtCore import QPoint
+            screen = (QGuiApplication.screenAt(QPoint(int(rug.center[0]), int(rug.center[1])))
+                      or QGuiApplication.primaryScreen())
+            g = screen.availableGeometry()
+            center = np.array([g.x() + g.width() / 2, g.y() + g.height() / 2], np.float64)
+            size, angle = (float(g.width()), float(g.height())), 0.0
+        rug.center, rug.size, rug.angle = np.asarray(center, np.float64), size, angle
+        self.ctx.make_current()
+        rug.sim.reset(rug.center, rug.size, rug.angle, 24.0)     # drops onto the desk
+        rug.refresh_positions()
+        rug.texture_dirty = True
+        self.redraw = self.overlay_dirty = True
+        self.save()
 
     def start_spin(self, rug):
         if self.spin is not None:
@@ -448,6 +473,7 @@ class Controller(QObject):
             elif d.kind in ("move", "rotate", "resize"):
                 r.sim.end_guide()
                 if d.kind == "resize":
+                    r.restore = None
                     self.ctx.make_current()
                     if not r.sim.can_resize_in_place(r.size):
                         r.sim.reset(r.center, r.size, r.angle, 0.0)
@@ -624,14 +650,31 @@ class Controller(QObject):
                 w.update()
 
     def _recentre(self, r):
-        tgt = r.sim.target_positions(r.center, r.size, r.angle)
+        # The Mac app re-centres on the flat part of the cloth when it settles;
+        # here the angle is refitted too (a dragged rug turns as well as slides).
+        self._fit_pose(r, need_flat=True)
+
+    def _fit_pose(self, r, need_flat=False):
+        """Best-fit position and angle of the rug's flat layout onto where the
+        cloth lies (using the flat-lying part; folds would skew it)."""
         p = r.positions
-        low = p[:, 2] < 1.5
         n = len(p)
-        cnt = int(low.sum())
-        if cnt > math.floor(0.4 * n) / 2:
-            r.center = r.center + (p[low, :2] - tgt[low]).sum(0) / cnt
-            r.invalidate()
+        if n == 0 or len(r.sim.uv) != n:
+            return
+        low = p[:, 2] < 1.5
+        if int(low.sum()) <= math.floor(0.4 * n) / 2:
+            if need_flat:
+                return
+            low = np.ones(n, bool)
+        rest = (r.sim.uv[low] - 0.5) * np.array(r.size)
+        q = p[low, :2]
+        rc, qc = rest.mean(0), q.mean(0)
+        A, B = rest - rc, q - qc
+        ang = math.atan2(float((A[:, 0] * B[:, 1] - A[:, 1] * B[:, 0]).sum()), float((A * B).sum()))
+        r.angle = ang
+        r.center = qc - rot(ang) @ rc
+        r.invalidate()
+        self.overlay_dirty = True
 
     def _textures(self) -> bool:
         changed = False

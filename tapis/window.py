@@ -138,7 +138,8 @@ class DesktopWindow(QOpenGLWindow):
         if sel is not None and not c.hidden:
             overlay.draw_selection(p, sel, self.origin, c.hover_handle)
             if pill is not None:
-                overlay.draw_pill(p, pill, sel.below_icons, self.pill_hover, self.pill_pressed)
+                overlay.draw_pill(p, pill, sel.below_icons, self.pill_hover, self.pill_pressed,
+                                  getattr(sel, "restore", None) is not None)
         if hint_alpha > 0 and self.hint_rect is not None:
             overlay.draw_hint(p, self.hint_rect, hint_alpha)
         p.end()
@@ -239,7 +240,7 @@ class DesktopWindow(QOpenGLWindow):
         if self.pill_hover is None or r is None or sel is None:
             return
         br = overlay.button_rects(r)[self.pill_hover]
-        tip = overlay.pill_tooltips(sel.below_icons)[self.pill_hover]
+        tip = overlay.pill_tooltips(sel.below_icons, getattr(sel, "restore", None) is not None)[self.pill_hover]
         QToolTip.showText(self.mapToGlobal(br.bottomLeft().toPoint()), tip)
 
     def _pill_action(self, name):
@@ -253,6 +254,8 @@ class DesktopWindow(QOpenGLWindow):
             c.smooth(r)
         elif name == "rotate":
             c.start_spin(r)
+        elif name == "fill":
+            c.fill_screen(r)
         elif name == "layer":
             c.set_below_icons(r, not r.below_icons)
         elif name == "remove":

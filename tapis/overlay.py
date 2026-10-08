@@ -13,7 +13,7 @@ SYSTEM_BLUE = QColor(10, 132, 255)
 PILL_ICON = 20.0
 PILL_SPACING = 18.0
 PILL_INSET_X, PILL_INSET_Y = 20.0, 10.0
-BUTTONS = ["design", "smooth", "rotate", "layer", "remove"]
+BUTTONS = ["design", "smooth", "rotate", "fill", "layer", "remove"]
 
 
 def pill_size():
@@ -21,11 +21,12 @@ def pill_size():
     return (PILL_INSET_X * 2 + n * PILL_ICON + (n - 1) * PILL_SPACING, PILL_INSET_Y * 2 + PILL_ICON)
 
 
-def pill_tooltips(below: bool):
+def pill_tooltips(below: bool, filled: bool = False):
     return {
         "design": tr("Design"),
         "smooth": tr("Smooth out (or double-click the rug)"),
         "rotate": tr("Rotate 90°"),
+        "fill": tr("Restore size") if filled else tr("Fill screen"),
         "layer": tr("Place above icons") if below else tr("Place below icons"),
         "remove": tr("Remove rug"),
     }
@@ -47,7 +48,7 @@ def _pen(color, w=1.6):
     return p
 
 
-def draw_glyph(p: QPainter, name: str, r: QRectF, color: QColor, below: bool = False):
+def draw_glyph(p: QPainter, name: str, r: QRectF, color: QColor, below: bool = False, filled: bool = False):
     """A 20×20-ish glyph centred in r."""
     s = min(r.width(), r.height()) / 20.0
     p.save()
@@ -84,6 +85,18 @@ def draw_glyph(p: QPainter, name: str, r: QRectF, color: QColor, below: bool = F
         p.drawPath(arc)
         p.drawLine(QPointF(6.5, 2.5), QPointF(3.8, -0.5))
         p.drawLine(QPointF(6.5, 2.5), QPointF(9, -0.6))
+    elif name == "fill":                      # fill screen / restore (corner brackets)
+        a, b = 8.0, 3.6
+        for sx in (-1, 1):
+            for sy in (-1, 1):
+                if filled:                    # brackets pointing inward: back to normal size
+                    cx, cy = sx * b, sy * b
+                    p.drawLine(QPointF(cx, cy), QPointF(cx + sx * (a - b), cy))
+                    p.drawLine(QPointF(cx, cy), QPointF(cx, cy + sy * (a - b)))
+                else:
+                    cx, cy = sx * a, sy * a
+                    p.drawLine(QPointF(cx, cy), QPointF(cx - sx * (a - b), cy))
+                    p.drawLine(QPointF(cx, cy), QPointF(cx, cy - sy * (a - b)))
     elif name == "layer":                     # square.2.layers.3d.{bottom,top}.filled
         def rhombus(dy):
             path = QPainterPath()
@@ -173,14 +186,15 @@ def draw_selection(p: QPainter, rug, origin, hover):
     p.restore()
 
 
-def draw_pill(p: QPainter, rect: QRectF, below: bool, hover: str | None, pressed: str | None):
+def draw_pill(p: QPainter, rect: QRectF, below: bool, hover: str | None, pressed: str | None,
+              filled: bool = False):
     p.save()
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     draw_capsule(p, rect)
     for name, br in button_rects(rect).items():
         icon = QRectF(br.center().x() - PILL_ICON / 2, br.center().y() - PILL_ICON / 2, PILL_ICON, PILL_ICON)
         col = QColor(255, 255, 255, 150 if pressed == name else (255 if hover == name else 235))
-        draw_glyph(p, name, icon, col, below)
+        draw_glyph(p, name, icon, col, below, filled)
     p.restore()
 
 

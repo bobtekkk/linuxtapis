@@ -35,6 +35,7 @@ class Rug:
         self.texture_job = None
         self.positions = self.sim.positions()
         self._bounds_cache = None
+        self.restore = None          # pose to go back to after "Fill screen"
 
     # ---- cached geometry (positions are read back after each step)
     def refresh_positions(self):
