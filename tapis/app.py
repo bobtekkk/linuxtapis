@@ -149,6 +149,8 @@ class TapisApp:
                 p.unlink()
         self.prefs = store.Prefs()
         cloth.FEEL["corners_up"] = bool(self.prefs.get("cornersFoldUp", False))
+        cloth.set_softness(float(self.prefs.get("softness", 0.0)))
+        self.settings_window = None
         self.sim = SimContext()
         self.icons = DesktopIcons(1500)
         self.icon_layer = IconLayer(self.icons)
@@ -259,11 +261,7 @@ class TapisApp:
         a.setCheckable(True)
         a.setChecked(self.sound.enabled)
         a.triggered.connect(self.sound.toggle)
-        a = m.addAction(tr("Corners Fold Up"))
-        a.setCheckable(True)
-        a.setChecked(bool(self.prefs.get("cornersFoldUp", False)))
-        a.setToolTip("Edges and corners curl up and lie on top, instead of folding down and under.")
-        a.triggered.connect(self.toggle_corners)
+        m.addAction(tr("Settings…")).triggered.connect(self.show_settings)
         a = m.addAction(tr("Open at Login"))
         a.setCheckable(True)
         a.setChecked(AUTOSTART.exists())
@@ -317,13 +315,11 @@ class TapisApp:
         lay.addWidget(bb)
         _show_dialog(d)
 
-    def toggle_corners(self):
-        on = not bool(self.prefs.get("cornersFoldUp", False))
-        self.prefs.set("cornersFoldUp", on)
-        cloth.FEEL["corners_up"] = on
-        self.ctrl.ctx.make_current()
-        for r in self.ctrl.rugs:
-            r.sim.refresh_constraints()
+    def show_settings(self):
+        if self.settings_window is None:
+            from .settings_window import SettingsWindow
+            self.settings_window = SettingsWindow(self.prefs, self.ctrl)
+        self.settings_window.show_window()
 
     def toggle_login(self):
         if AUTOSTART.exists():

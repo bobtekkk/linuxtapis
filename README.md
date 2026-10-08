@@ -14,7 +14,8 @@ The idea comes from a tweet by Terkel (@terkelg).
 
 Differences from the Mac app: the cloth is tuned heavier and stiffer, like a
 real wool rug (no stretching; a pulled corner drags the whole rug), with an
-optional **Corners Fold Up** setting so edges curl up instead of tucking under.
+adjustable **Softness** (all the way to a bed sheet) and an optional **Corners
+Fold Up** setting so edges curl up instead of tucking under.
 
 ## Run
 

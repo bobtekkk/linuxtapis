@@ -7,7 +7,7 @@ import struct
 import numpy as np
 from OpenGL import GL
 
-from . import gl
+from . import cloth, gl
 from .strands import make_strands
 
 CAM_D = 2200.0
@@ -115,7 +115,7 @@ class Renderer:
                 SHADOW_DIR[0], SHADOW_DIR[1], float(W), float(H), SHADOW_STRENGTH, 0, 0, 0), np.uint8)
             fp = fur_params(r)
             fur[o:o + 32] = np.frombuffer(struct.pack("<8f", *fp, 0, 0, 0), np.uint8)
-            rim[o:o + 16] = np.frombuffer(struct.pack("<4f", RIM_THICKNESS, 1.0 if fp[0] > 0.5 else 0.0, 0, 0),
+            rim[o:o + 16] = np.frombuffer(struct.pack("<4f", RIM_THICKNESS * cloth.thickness_scale(), 1.0 if fp[0] > 0.5 else 0.0, 0, 0),
                                           np.uint8)
         self.ubo.write(ubo)
         self.fur_ubo.write(fur)

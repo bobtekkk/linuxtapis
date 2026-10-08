@@ -49,6 +49,28 @@ FEEL = dict(
     corners_collide=True, # (corners_up) edges go on top where they meet the rug side-on
     corner_band=40.0,     # how far in from the edge that preference reaches, pt
 )
+
+# The two ends of the Softness setting. 0 = heavy wool rug (the values above),
+# 1 = a light bed sheet (softer and floatier than the Mac app's cloth).
+HEAVY = {k: FEEL[k] for k in ("shear_k", "bend_k", "bend4_k", "gravity", "air_damp", "grab_ease", "grab_lift",
+                              "stick_limit", "slide", "max_stretch", "tether_slack")}
+SHEET = dict(shear_k=0.6, bend_k=0.06, bend4_k=0.0, gravity=2200.0, air_damp=0.99, grab_ease=0.4, grab_lift=26.0,
+             stick_limit=0.7, slide=0.5, max_stretch=1.04, tether_slack=0.03)
+SOFTNESS = {"value": 0.0}
+
+
+def set_softness(s: float):
+    """Blends every feel setting between a heavy rug (0) and a bed sheet (1)."""
+    s = min(max(float(s), 0.0), 1.0)
+    SOFTNESS["value"] = s
+    for k, a in HEAVY.items():
+        FEEL[k] = a + (SHEET[k] - a) * s
+    FEEL["limit_shear"] = s < 0.6       # sheets may skew a little
+
+
+def thickness_scale() -> float:
+    """Sheets are thinner than rugs."""
+    return 1.0 - 0.55 * SOFTNESS["value"]
 _SUPPORT_FMT = "<3f3If I".replace(" ", "")
 
 
@@ -240,7 +262,8 @@ class ClothSim:
         return self.size[0] / (self.cols - 1) if self.cols >= 2 else 1.0
 
     def set_thickness(self, pile: float):
-        t = float(pile) * 18 * 0.85 + 4.5
+        t = (float(pile) * 18 * 0.85 + 4.5) * thickness_scale()
+        self.pile = float(pile)
         if t != self.thickness:
             self.thickness = t
             self.wake()
