@@ -12,7 +12,7 @@ from . import gl
 
 KERNELS = ["clearSupport", "rasterSupport", "frameBegin", "integrate", "clearBuckets", "countTriangles",
            "scanBuckets", "fillTriangles", "solveBatch", "limitBatch", "applyTargets", "collide",
-           "applyDeltas", "friction", "frameEnd", "refine", "refineNormals", "tether", "edgeLift"]
+           "applyDeltas", "friction", "frameEnd", "refine", "refineNormals", "tether"]
 
 FLAG_GRAB, FLAG_GUIDE, FLAG_FLATTEN, FLAG_PLACE = 1, 2, 4, 8
 HASH_SIZE = 8192
@@ -45,6 +45,8 @@ FEEL = dict(
     tether=True,          # the grabbed point drags the whole rug instead of stretching it (Mac: no)
     tether_slack=0.0,
     corners_up=False,     # edges and corners prefer to fold up (on top) rather than tuck under
+    edge_k=1.0,           # (corners_up) extra stiffness of the bound border
+    corners_collide=True, # (corners_up) edges go on top where they meet the rug side-on
     corner_band=40.0,     # how far in from the edge that preference reaches, pt
 )
 _SUPPORT_FMT = "<3f3If I".replace(" ", "")
@@ -61,7 +63,6 @@ class Kernels:
         tp = self.prog["tether"]
         self.loc_slide = GL.glGetUniformLocation(self.prog["friction"], "slide")
         self.loc_band = GL.glGetUniformLocation(self.prog["collide"], "edgeBand")
-        self.loc_lift_band = GL.glGetUniformLocation(self.prog["edgeLift"], "edgeBand")
         self.loc_tether = tuple(GL.glGetUniformLocation(tp, n) for n in ("anchorIdx", "restSize", "slack"))
 
     @classmethod
@@ -178,6 +179,15 @@ class ClothSim:
         add(m, p + 1, p + cols, FEEL["shear_k"], 6 + i % 2)                      # shear /
         add(i + 2 < cols, p, p + 2, FEEL["bend_k"], 8 + (i // 2) % 2)              # bend H
         add(j + 2 < rows, p, p + 2 * cols, FEEL["bend_k"], 10 + (j // 2) % 2)      # bend V
+        if FEEL["corners_up"] and FEEL["edge_k"] > 0:
+            # a stiffer bound border (skip-two links across and along the edge band),
+            # so corners and edges don't roll under
+            band = max(2, math.ceil(FEEL["corner_band"] / max(min(self.size) / 60.0, 1.0)))
+            ev = np.minimum(np.minimum(i, cols - 1 - i), np.minimum(j, rows - 1 - j))
+            nearH = (np.minimum(j, rows - 1 - j) < band) | (np.minimum(i, cols - 4 - i) < band)
+            nearV = (np.minimum(i, cols - 1 - i) < band) | (np.minimum(j, rows - 4 - j) < band)
+            add((i + 3 < cols) & nearH, p, p + 3, FEEL["edge_k"], 16 + (i // 3) % 2)
+            add((j + 3 < rows) & nearV, p, p + 3 * cols, FEEL["edge_k"], 18 + (j // 3) % 2)
         if FEEL["bend4_k"] > 0:
             add(i + 4 < cols, p, p + 4, FEEL["bend4_k"], 12 + (i // 4) % 2)        # long bend H
             add(j + 4 < rows, p, p + 4 * cols, FEEL["bend4_k"], 14 + (j // 4) % 2)  # long bend V
@@ -187,7 +197,7 @@ class ClothSim:
         batch = np.concatenate([f[3] for f in fams])
         order = np.argsort(batch, kind="stable")
         self.cA, self.cB, self.cK, self.cBatch = a[order], b[order], k[order], batch[order]
-        counts = np.bincount(self.cBatch, minlength=16)
+        counts = np.bincount(self.cBatch, minlength=20)
         offs = np.concatenate([[0], np.cumsum(counts)[:-1]])
         self.batches = [(int(o), int(c)) for o, c in zip(offs, counts)]
         self.bufs["cons"] = gl.Buffer(nbytes=len(a) * 16)
@@ -209,6 +219,13 @@ class ClothSim:
             rim[k] = (ja * rc + ia, jb * rc + ib, ja2 * rc + ia2, jb2 * rc + ib2)
         self.rim_buf = gl.Buffer(rim)
         self.rim_segments = m
+
+    def refresh_constraints(self):
+        """Rebuilds the links (after a feel setting changed), keeping the cloth where it is."""
+        self.bufs["cons"].delete()
+        self._build_constraints()
+        self.set_size(self.size)
+        self.wake()
 
     def set_size(self, size):
         self.size = (float(size[0]), float(size[1]))
@@ -427,8 +444,7 @@ class ClothSim:
             F.barrier(BARRIER)
 
         band = max(2, math.ceil(FEEL["corner_band"] / max(spacing, 1.0))) if FEEL["corners_up"] else 0
-        GL.glProgramUniform1i(P["collide"], K.loc_band, band)
-        GL.glProgramUniform1i(P["edgeLift"], K.loc_lift_band, 2)
+        GL.glProgramUniform1i(P["collide"], K.loc_band, band if FEEL["corners_collide"] else 0)
         run("frameBegin", ng)
         solve, limit = P["solveBatch"], P["limitBatch"]
         loc_s, loc_l = K.loc_batch["solveBatch"], K.loc_batch["limitBatch"]
@@ -458,8 +474,6 @@ class ClothSim:
                     GL.glUniform1f(K.loc_tether[2], FEEL["tether_slack"])
                     F.dispatch(ng, 1, 1)
                     F.barrier(BARRIER)
-                if band:
-                    run("edgeLift", ng)
                 run("collide", ng)
                 run("applyDeltas", ng)
                 run("collide", ng)

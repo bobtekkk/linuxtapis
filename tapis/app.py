@@ -321,8 +321,9 @@ class TapisApp:
         on = not bool(self.prefs.get("cornersFoldUp", False))
         self.prefs.set("cornersFoldUp", on)
         cloth.FEEL["corners_up"] = on
+        self.ctrl.ctx.make_current()
         for r in self.ctrl.rugs:
-            r.sim.wake()
+            r.sim.refresh_constraints()
 
     def toggle_login(self):
         if AUTOSTART.exists():

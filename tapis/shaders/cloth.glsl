@@ -404,9 +404,9 @@ void main() {
         float dPrev = qnl > 1e-6 ? dot(prev[v].xyz - qa, qn / qnl) : d;
         if (abs(dPrev) < 0.05) dPrev = d;
         float side = dPrev >= 0.0 ? 1.0 : -1.0;
-        // "Corners fold up": where an edge meets the rest of the rug and it isn't
-        // already clearly under, the edge goes on top instead of tucking under.
-        if (edgeBand > 0 && abs(dPrev) < th * 1.5) {
+        // "Corners fold up": when an edge meets the rest of the rug side-on (a
+        // toss-up which side it goes), it goes on top. Never pulls cloth through.
+        if (edgeBand > 0 && abs(dPrev) < th * 0.25) {
             int ev = min(min(vi, nc - 1 - vi), min(vj, int(P.rows) - 1 - vj));
             int et = min(min(ci, nc - 2 - ci), min(cj, int(P.rows) - 2 - cj));
             float up = nn.z >= 0.0 ? 1.0 : -1.0;
@@ -442,28 +442,6 @@ void main() {
     vec3 d = p - a;
     float len = length(d);
     if (len > rest && len > 1e-6) pos[k] = vec4(a + d * (rest / len), 0.0);
-}
-#endif
-
-// (Linux port) "Corners fold up": the outermost rows may curl up but not roll
-// down: an edge point stays no lower than its neighbour two rows in, minus a
-// gentle slope. Lifted edges then turn up like a bound rug, never tuck under.
-#ifdef K_edgeLift
-void main() {
-    uint k = gl_GlobalInvocationID.x;
-    if (k >= P.n || pinned[k] != 0u) return;
-    int nc = int(P.cols), nr = int(P.rows);
-    int i = int(k) % nc, j = int(k) / nc;
-    int sx = i < edgeBand ? 1 : (i > nc - 1 - edgeBand ? -1 : 0);
-    int sy = j < edgeBand ? 1 : (j > nr - 1 - edgeBand ? -1 : 0);
-    if (sx == 0 && sy == 0) return;
-    int ii = clamp(i + 2 * sx, 0, nc - 1), jj = clamp(j + 2 * sy, 0, nr - 1);
-    vec3 p = pos[k].xyz;
-    vec3 q = pos[jj * nc + ii].xyz;
-    float allowed = 0.3 * length(q.xy - p.xy);
-    float floorZ = q.z - allowed;
-    if (p.z < floorZ) p.z += (floorZ - p.z) * 0.5;
-    pos[k] = vec4(p, 0.0);
 }
 #endif
 

@@ -63,7 +63,6 @@ KERNEL_BUFFERS = {
     "refine": "Pos Ground VertexOut",
     "refineNormals": "VertexOut",
     "tether": "Pos Pinned UV",
-    "edgeLift": "Pos Pinned",
 }
 
 
